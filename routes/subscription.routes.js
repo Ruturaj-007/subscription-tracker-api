@@ -8,14 +8,14 @@ subscriptionRouter.get('/', (req, res) => res.send({
 
 subscriptionRouter.get('/upcoming-renewals', (req, res) => res.send({
     title: 'GET upcoming renewals'
-})); 
-
-subscriptionRouter.get('/:id/cancel', (req, res) => res.send({
-    title: 'CANCEL subscriptions'
 }));
 
 subscriptionRouter.get('/:id', (req, res) => res.send({
     title: 'GET subscription details'
+}));
+
+subscriptionRouter.get('/:id/cancel', (req, res) => res.send({
+    title: 'CANCEL subscriptions'
 }));
 
 subscriptionRouter.post('/', (req, res) => res.send({
