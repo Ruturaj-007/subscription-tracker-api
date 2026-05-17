@@ -7,7 +7,16 @@ config({
 export const {
     PORT,
     DB_URI,
-    JWT_SECRET, JWT_EXPIRES_IN,
+    JWT_SECRET,
+    JWT_EXPIRES_IN,
     NODE_ENV,
-    ARCJET_KEY, ARCJET_ENV
+
+    ARCJET_KEY,
+    ARCJET_ENV,
+
+    QSTASH_TOKEN,
+    QSTASH_URL,
+
+    SERVER_URL
+
 } = process.env;
