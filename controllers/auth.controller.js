@@ -20,7 +20,7 @@ export const signUp  = async (req, res, next) => {
         const existingUser = await User.findOne({email});
         
         if (existingUser) {
-            const error = "User already exists";
+            const error = new Error("User already exists");
             error.statusCode = 409;
             throw error
         }
@@ -35,13 +35,13 @@ export const signUp  = async (req, res, next) => {
             name,
             email,
             password : hashedPassword
-        }], {session});
+        }], {session}); // Tells Mongoose: "Run this insert inside my transaction"
 
 
          // GENERATE TOKEN
         const token = jwt.sign(
             {
-                userId: newUsers[0]._id
+                userId: newUsers[0]._id // You need [0] to unwrap the user from the array before sending it in the JSON response.
             },
             JWT_SECRET,
             {
@@ -77,10 +77,11 @@ export const signIn = async (req, res, next) => {
 
         if (!user) {
             const error = new Error("User not found");
-            error.statusCode(404);
+            error.statusCode = 404;
             throw error;
         }
 
+        // Compares Plain text password from login form & hashes passowrd stored in db 
         const isPasswordValid = await bcrypt.compare(password, user.password);
         
         if (!isPasswordValid) {
@@ -121,5 +122,5 @@ export const signIn = async (req, res, next) => {
 
 // SIGN OUT
 export const signOut = async (req, res, next) => {
-
+    
 };

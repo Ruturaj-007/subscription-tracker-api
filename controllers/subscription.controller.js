@@ -1,47 +1,31 @@
 import { workflowClient } from '../config/upstash.js';
 import Subscription from '../models/subscription.model.js';
-import { SERVER_URL } from '../config/env.js';
+import { SERVER_URL, NODE_ENV } from '../config/env.js';
 
 export const createSubscription = async (req, res, next) => {
     try {
 
         const subscription = await Subscription.create({
+    ...req.body,
+    user: req.user._id
+});
 
-            ...req.body,
-            /* 
-                Take all frontend data 
-                {
-                    "name": "Netflix Premium",
-                    "price": 11.11,
-                    "currency": "USD",
-                    "frequency": "monthly",
-                    "category": "entertainment",
-                    "startDate": "2024-02-01T00:00:00.000Z",
-                    "paymentMethod": "Credit Card"
-                }
-            */
+// Only trigger workflow if SERVER_URL is a real public URL (not localhost)
+let workflowRunId = null;
+if (NODE_ENV !== 'development') {
+    const result = await workflowClient.trigger({
+        url: `${SERVER_URL}/api/v1/workflows/subscription/reminder`,
+        body: { subscriptionId: subscription.id },
+        headers: { 'content-type': 'application/json' },
+        retries: 0,
+    });
+    workflowRunId = result.workflowRunId;
+}
 
-            user: req.user._id  // attach  logged in user
-        });
-
-    const { workflowRunId } = await workflowClient.trigger({
-            url : `${SERVER_URL}/api/v1/workflows/subscription/reminder`,
-            body: {
-                subscriptionId : subscription.id,
-            },
-            headers: {
-                'content-type' : 'application/json'
-            },
-            retries : 0, 
-        })
-
-        res.status(201).json({
-            success: true,
-            data: {
-                subscription,
-                workflowRunId
-            }
-        });
+res.status(201).json({
+    success: true,
+    data: { subscription, workflowRunId }
+});
 
     } catch (error) {
         next(error);

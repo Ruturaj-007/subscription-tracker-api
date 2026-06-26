@@ -1,80 +1,174 @@
-// *Schedule reminder emails before subscription renewal
+// * Schedule reminder emails before subscription renewal
 
 import dayjs from 'dayjs'
 
 import { createRequire } from 'module';
-import Subscription from '../models/subscription.model.js';
+
+// Needed because Upstash package uses CommonJS require syntax
 const require = createRequire(import.meta.url);
-const { serve } = require('@upstash/workflow/express');
 
-const REMINDERS = [7,5,2,1];
+// Import Upstash workflow serve function
+const { serve } = require("@upstash/workflow/express");
 
-// 1. Creates a worflow handler main workflow starts here
+import Subscription from '../models/subscription.model.js';
+import { sendReminderEmail } from '../utils/send-email.js'
+
+// Reminder days before renewal date
+// Example: if renewal = Feb 22
+// reminders will trigger on Feb 15, 17, 20, 21
+const REMINDERS = [7, 5, 2, 1]
+
+// 1. Main workflow starts here
 export const sendReminders = serve(async (context) => {
-    const { subscriptionId } = context.requestPayload;
 
-    // 2. Go to mongodb fetch subscription details     
-    const subscription = await fetchSubscription(context, subscriptionId);
+  // Extract subscriptionId sent from API/workflow trigger
+  const { subscriptionId } = context.requestPayload;
 
-    // 4. Status check  
-    if (!subscription || subscription.status !== 'active') return;
+  // 2. Fetch subscription details from MongoDB
+  const subscription = await fetchSubscription(context, subscriptionId);
 
-    // 5. Converting normal JS Date into Day.js object 
-    const renewalDate = dayjs(subscription.renewalDate);
+  // 3. Stop workflow if:
+  // subscription not found
+  // OR subscription is inactive/cancelled
+  if(!subscription || subscription.status !== 'active') return;
 
-    // 6. Expired Check : Is renewal already in past?  renewal = Feb 22  today = 16 may workflow stops 
-    if (renewalDate.isBefore(dayjs())) {
-        console.log(`Renewal date has passed for subscription ${subscriptionId}. stopping workflow`)
-        return;
+  // 4. Convert MongoDB renewal date into Day.js object
+  const renewalDate = dayjs(subscription.renewalDate);
+
+  // 5. Expired check
+  // If renewal date already passed -> stop workflow
+  /*
+      Example:
+      renewalDate = Feb 22
+      today       = May 16
+
+      Since renewal already expired,
+      no reminders should be sent
+  */
+  if(renewalDate.isBefore(dayjs())) {
+    console.log(`Renewal date has passed for subscription ${subscriptionId}. Stopping workflow.`);
+    return;
+  }
+
+  // 6. Main reminder scheduling loop
+  for (const daysBefore of REMINDERS) {
+
+    // Calculate reminder date
+    const reminderDate = renewalDate.subtract(daysBefore, 'day');
+
+    /*
+        Example:
+        renewalDate = Feb 22
+
+        Loop 1:
+        daysBefore = 7
+        reminderDate = Feb 15
+
+        Loop 2:
+        daysBefore = 5
+        reminderDate = Feb 17
+
+        Loop 3:
+        daysBefore = 2
+        reminderDate = Feb 20
+
+        Loop 4:
+        daysBefore = 1
+        reminderDate = Feb 21
+    */
+
+    // 7. Only sleep/schedule future reminders
+    /*
+        Example:
+        today = Feb 19
+
+        Feb 15 -> skipped
+        Feb 17 -> skipped
+        Feb 20 -> scheduled
+        Feb 21 -> scheduled
+    */
+    if(reminderDate.isAfter(dayjs())) {
+
+      // Pause workflow until reminder date arrives
+      await sleepUntilReminder(
+        context,
+        `Reminder ${daysBefore} days before`,
+        reminderDate
+      );
     }
 
-    // 7. Core Reminder loop 
-    for (const daysBefore of REMINDERS) {
-        const reminderDate = renewalDate.subtract(daysBefore, 'day');  
-        /*
-            renewal date = 22 feb, reminder date = 15 feb 17 20 21 
-            now in 1st loop daysBefore = 7
-                renewalDate.subtract(7, 'day') FEB 22 - 7 = FEB 15
-            now in 2nd loop daysBefore = 5 
-                renewalDate.subtract(7, 'day') FEB 22 - 5 = FEB 17
-        */
+    // 8. When workflow wakes up,
+    // check if today matches reminder day
+    if (dayjs().isSame(reminderDate, 'day')) {
 
-        // 8. Only schedule reminders for future dates : today feb19 feb 15 17 will be skipped and 20 21 will be scheduled 
-        if (reminderDate.isAfter(dayjs())) {
-            await sleepUntilReminder(context, `Reminder ${daysBefore} days before`, reminderDate);
-        }
+      // Trigger email reminder
+      await triggerReminder(
+         context,
+        `Reminder ${daysBefore} days before`,
+        subscription
+      );
     }
+  }
 });
 
-// 3. Mongoose fetches actual user data 
-const fetchSubscription = async(context, subscriptionId) => {
-    return await context.run('get subscription', async() => {
-        return Subscription.findById(subscriptionId).populate('user', 'name email');
-    })
+// 2A. Fetch subscription from MongoDB
+const fetchSubscription = async (context, subscriptionId) => {
+
+  // context.run() makes this a tracked workflow step
+  return await context.run('get subscription', async () => {
+
+    // Populate user field to get name + email
+    return Subscription
+      .findById(subscriptionId)
+      .populate('user', 'name email');
+  })
 }
-/*  "user": {
+
+/*
+    Example populated result:
+
+    {
+      "_id": "123",
+      "renewalDate": "2026-02-22",
+      "status": "active",
+
+      "user": {
         "name": "Ruturaj",
         "email": "rutu@gmail.com"
-        }
+      }
+    }
 */
-        
-// 8. Pause workflow execution until specific future time
-const sleepUntilReminder = async(context, label, date) => {
-    console.log(`Sleeping until ${label} reminder at ${date}`);
-    await context.sleepUntil(label, date.toDate());
+
+// 7A. Pause workflow execution until future reminder date
+const sleepUntilReminder = async (context, label, date) => {
+
+  console.log(`Sleeping until ${label} reminder at ${date}`);
+
+  // Workflow sleeps here
+  // and automatically wakes up later
+  await context.sleepUntil(label, date.toDate());
 }
 
-// 9. Execute this step as a tracked workflow step with context.run() Workflow engine knows step incomplete
-const triggerReminder = async (context, label) => {
-    return await context.run(label, () => {
-        console.log(`Triggering ${label} reminder`);
+// 8A. Send actual reminder email
+const triggerReminder = async (context, label, subscription) => {
+
+  // context.run() creates durable workflow step
+  // If failure happens, Upstash can retry safely
+  return await context.run(label, async () => {
+
+    console.log(`Triggering ${label} reminder`);
+
+    // Send reminder email
+    await sendReminderEmail({
+
+      // User email fetched from populate()
+      to: subscription.user.email,
+
+      // Email type
+      type: label,
+
+      // Full subscription object
+      subscription,
     })
+  })
 }
-
-
-
-
-
-
-
-
