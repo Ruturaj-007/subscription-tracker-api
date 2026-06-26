@@ -4,10 +4,12 @@ import {
     createSubscription ,
     getUserSubscriptions
 } from "../controllers/subscription.controller.js";
+import { validate } from '../middlewares/validate.middleware.js';
+import { createSubscriptionSchema } from '../validations/subscription.validation.js';
 
 const subscriptionRouter = Router();
 
-subscriptionRouter.get('/', authorize, createSubscription);
+subscriptionRouter.get('/', authorize, validate(createSubscriptionSchema), createSubscription);
 
 subscriptionRouter.get('/user/:id', authorize, getUserSubscriptions); 
 
