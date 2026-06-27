@@ -69,7 +69,8 @@ Keep it under 150 words. Be specific with rupee amounts.
         }
 
         const groqData = await response.json();
-        const insights = groqData.choices[0].message.content;
+        const raw = groqData.choices[0].message.content;
+        const insights = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
         res.status(200).json({
             success: true,
