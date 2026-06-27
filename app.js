@@ -1,4 +1,5 @@
 import express from 'express'
+import cors from 'cors'
 import { PORT } from './config/env.js'
 import userRouter from './routes/user.routes.js';
 import authRouter from './routes/auth.routes.js';
@@ -15,10 +16,14 @@ import { swaggerSpec } from './config/swagger.js';
 
 const app = express();
 
+app.use(cors({
+    origin: ['http://localhost:3000', 'http://localhost:5173', process.env.FRONTEND_URL].filter(Boolean),
+    credentials: true,
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
-// app.use(arcjetMiddleware); 
 
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/users', userRouter);
